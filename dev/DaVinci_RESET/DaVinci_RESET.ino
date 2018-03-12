@@ -15,8 +15,6 @@ static const uint8_t led = 2;
 
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 
-bool bwrite = false;
-
 uint32_t c[] = {
 	0x6D835AFC, 0x7D15CD97, 0x0942B409, 0x32F9C923, 0xA811FB02, 0x64F121E8,
 	0xD1CC8B4E, 0xE8873E6F, 0x61399BBB, 0xF1B91926, 0xAC661520, 0xA21A31C9,
@@ -35,25 +33,15 @@ void setup() {
 	digitalWrite(2, HIGH);
 
 	Serial.println("Hold the cartridge tag over the reader..");
-	for (int i = 0; i < 26; i++) {
-		uint32_t tempc;
-		tempc |= (c[i] & 0x000000FF) << 24;
-		tempc |= (c[i] & 0x0000FF00) << 8;
-		tempc |= (c[i] & 0x00FF0000) >> 8;
-		tempc |= (c[i] & 0xFF000000) >> 24;
-		c[i] = tempc;
-		Serial.println(c[i],HEX);
-	}
 	while (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial());
 	uint32_t k = getkey(mfrc522.uid.uidByte);
 	uint16_t p = getpack(mfrc522.uid.uidByte);
-	printHex(mfrc522.uid.uidByte, 7);
-	Serial.println(k, HEX);
-	Serial.println(p, HEX);
+	Serial.print("UID:"); printHex(mfrc522.uid.uidByte, 7);
+	Serial.print("KEY:"); Serial.println(k, HEX);
+	Serial.print("PACK:"); Serial.println(p, HEX);
 }
 
-void loop() {
-}
+void loop() {}
 
 void printHex(uint8_t array[], unsigned int len) {
 	char buffer[3];
@@ -64,54 +52,14 @@ void printHex(uint8_t array[], unsigned int len) {
 	} Serial.println();
 }
 
-uint32_t getkey(uint8_t* uid)
-{
-	uint8_t i;
-	//Rotate
-	uint8_t r = (uid[1] + uid[3] + uid[5]) & 7; //Rotation offset
-	uint8_t ru[8] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }; //Rotated UID
-	for (i = 0; i < 7; i++)
-		ru[(i + r) & 7] = uid[i];
-
-	//Transform
-	transform(ru);
-
-	//Calc key
-	uint32_t k = 0; //Key as int
-	r = (ru[0] + ru[2] + ru[4] + ru[6]) & 3; //Offset
-	for (i = 0; i < 4; i++)
-		k = ru[i + r] + (k << 8);
-
-	return k;
-}
-
-uint16_t getpack(uint8_t* uid)
-{
-	uint8_t i;
-	//Rotate
-	uint8_t r = (uid[2] + uid[5]) & 7; //Rotation offset
-	uint8_t ru[8] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }; //Rotated UID
-	for (i = 0; i < 7; i++)
-		ru[(i + r) & 7] = uid[i];
-
-	//Transform
-	transform(ru);
-
-	//Calc pack
-	uint32_t p = 0;
-	for (i = 0; i < 8; i++)
-		p += ru[i] * 13;
-
-	return (p ^ 0x5555) & 0xFFFF;
-}
-
 void transform(uint8_t* ru)
 {
 	//Transform
 	uint8_t i;
 	uint8_t p = 0;
-	uint32_t v1 = ((ru[3] << 24) | (ru[2] << 16) | (ru[1] << 8) | ru[0]) + c[p++];
-	uint32_t v2 = ((ru[7] << 24) | (ru[6] << 16) | (ru[5] << 8) | ru[4]) + c[p++];
+	uint32_t v1 = (((uint32_t)ru[3] << 24) | ((uint32_t)ru[2] << 16) | ((uint32_t)ru[1] << 8) | (uint32_t)ru[0]) + c[p++];
+	uint32_t v2 = (((uint32_t)ru[7] << 24) | ((uint32_t)ru[6] << 16) | ((uint32_t)ru[5] << 8) | (uint32_t)ru[4]) + c[p++];
+
 	for (i = 0; i < 12; i += 2)
 	{
 		uint32_t t1 = ROTL(v1 ^ v2, v2 & 0x1F) + c[p++];
@@ -129,4 +77,46 @@ void transform(uint8_t* ru)
 	ru[5] = (v2 >> 8) & 0xFF;
 	ru[6] = (v2 >> 16) & 0xFF;
 	ru[7] = (v2 >> 24) & 0xFF;
+}
+
+uint32_t getkey(uint8_t* uid)
+{
+	int i;
+	//Rotate
+	uint8_t r = (uid[1] + uid[3] + uid[5]) & 7; //Rotation offset
+	uint8_t ru[8] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }; //Rotated UID
+	for (i = 0; i < 7; i++)
+		ru[(i + r) & 7] = uid[i];
+
+	//Transform
+	transform(ru);
+
+	//Calc key
+	uint32_t k = 0; //Key as int
+	r = (ru[0] + ru[2] + ru[4] + ru[6]) & 3; //Offset
+	for (i = 4; i >= 0; i--) 
+		k = ru[i + r] + (k << 8);
+
+	return k;
+}
+
+uint16_t getpack(uint8_t* uid)
+{
+	int i;
+	//Rotate
+	uint8_t r = (uid[2] + uid[5]) & 7; //Rotation offset
+	uint8_t ru[8] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }; //Rotated UID
+	for (i = 0; i < 7; i++)
+		ru[(i + r) & 7] = uid[i];
+
+	//Transform
+	transform(ru);
+
+	//Calc pack
+	uint32_t p = 0;
+	for (i = 0; i < 8; i++)
+		p += ru[i] * 13;
+	
+	p = (p ^ 0x5555) & 0xFFFF;
+	return (p & 0xFF00) >> 8 | (p & 0x00FF) << 8;
 }
