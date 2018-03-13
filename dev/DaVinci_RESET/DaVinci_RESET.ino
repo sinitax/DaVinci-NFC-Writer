@@ -13,6 +13,8 @@ constexpr uint8_t RST_PIN = 9;
 constexpr uint8_t SS_PIN = 10;
 static const uint8_t led = 2;
 
+bool bwrite = false;
+
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 
 uint32_t c[] = {
@@ -34,14 +36,39 @@ void setup() {
 
 	Serial.println("Hold the cartridge tag over the reader..");
 	while (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial());
-	uint32_t k = getkey(mfrc522.uid.uidByte);
-	uint16_t p = getpack(mfrc522.uid.uidByte);
-	Serial.print("UID:"); printHex(mfrc522.uid.uidByte, 7);
+	uint32_t k = getkey((uint8_t*) mfrc522.uid.uidByte);
+	uint16_t p = getpack((uint8_t*) mfrc522.uid.uidByte);
+	Serial.print("UID:"); printHex((uint8_t*) mfrc522.uid.uidByte, 7);
 	Serial.print("KEY:"); Serial.println(k, HEX);
 	Serial.print("PACK:"); Serial.println(p, HEX);
 }
 
-void loop() {}
+void loop() {
+	digitalWrite(led, bwrite);
+	bwrite ? writeNew() : readOld();
+}
+
+void readOld() {
+	Serial.println("Hold the cartridge tag over the reader..");
+	while (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial());
+	uint32_t k = getkey((uint8_t*)mfrc522.uid.uidByte);
+	uint16_t p = getpack((uint8_t*)mfrc522.uid.uidByte);
+	Serial.print("UID:"); printHex((uint8_t*)mfrc522.uid.uidByte, 7);
+	Serial.print("KEY:"); Serial.println(k, HEX);
+	Serial.print("PACK:"); Serial.println(p, HEX);
+	if (PCD_NTAG213_AUTH(&k[0], &p[0])) {
+		Serial.println("Authenticated! Reading Data.");
+		mfrc522.PICC_DumpMifareUltralightToSerial(); //This is a modifier dunp just cghange the for cicle to < 232 instead of < 16 in order to see all the pages on NTAG216
+	}
+	bwrite = true;
+}
+
+void writeNew() {
+	Serial.println("Hold paper tag over reader..");
+	while (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial());
+
+	bwrite = false;
+}
 
 void printHex(uint8_t array[], unsigned int len) {
 	char buffer[3];
@@ -120,3 +147,16 @@ uint16_t getpack(uint8_t* uid)
 	p = (p ^ 0x5555) & 0xFFFF;
 	return (p & 0xFF00) >> 8 | (p & 0x00FF) << 8;
 }
+
+bool PCD_NTAG213_AUTH(uint32_t* key, uint16_t* pack) {
+	//password location is 0x2B
+	return true;
+}
+
+bool PCD_NTAG213_PWDSET(uint32_t* key, uint16_t* pack) {
+
+	return true;
+}
+
+//TODO: PCD_NTAG213_AUTH TO MFRC522 LIB fork and request pull
+//TODO: PCD_NTAG213_PWDSET --
