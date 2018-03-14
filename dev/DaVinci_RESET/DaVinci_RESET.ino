@@ -1,10 +1,6 @@
 #include <SPI.h>
 #include <MFRC522.h>
 
-#include <stdio.h>
-#include <inttypes.h>
-#include <string.h>
-
 #ifndef ROTL
 # define ROTL(x,n) (((uintmax_t)(x) << (n)) | ((uintmax_t)(x) >> ((sizeof(x) * 8) - (n))))
 #endif
@@ -15,9 +11,12 @@ static const uint8_t led = 2;
 
 bool bwrite = false;
 
+#define NTAG213_PWD 0x2B
+#define NTAG213_PCK 0x2C
+
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 
-uint32_t c[] = {
+const uint32_t PROGMEM c[] = {
 	0x6D835AFC, 0x7D15CD97, 0x0942B409, 0x32F9C923, 0xA811FB02, 0x64F121E8,
 	0xD1CC8B4E, 0xE8873E6F, 0x61399BBB, 0xF1B91926, 0xAC661520, 0xA21A31C9,
 	0xD424808D, 0xFE118E07, 0xD18E728D, 0xABAC9E17, 0x18066433, 0x00E18E79,
@@ -25,46 +24,48 @@ uint32_t c[] = {
 	0x5728B869, 0x30726D5A
 };
 
+//MFRC522::StatusCode PCD_NTAG213_AUTH(byte *pwd, byte *pck);
+//MFRC522::StatusCode PCD_NTAG213_SETPWD(byte *pwd, byte *pck);
+template <typename T> T pgm_getdata(const T * sce);
+
 void setup() {
 	Serial.begin(115200);
 	while (!Serial);
 	SPI.begin();
 	mfrc522.PCD_Init();
 
-	pinMode(2, OUTPUT);
-	digitalWrite(2, HIGH);
-
-	Serial.println("Hold the cartridge tag over the reader..");
-	while (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial());
-	uint32_t k = getkey((uint8_t*) mfrc522.uid.uidByte);
-	uint16_t p = getpack((uint8_t*) mfrc522.uid.uidByte);
-	Serial.print("UID:"); printHex((uint8_t*) mfrc522.uid.uidByte, 7);
-	Serial.print("KEY:"); Serial.println(k, HEX);
-	Serial.print("PACK:"); Serial.println(p, HEX);
+	//pinMode(2, OUTPUT);
+	readOld();
 }
 
 void loop() {
-	digitalWrite(led, bwrite);
-	bwrite ? writeNew() : readOld();
+	//digitalWrite(led, bwrite);
+	//bwrite ? writeNew() : readOld();
 }
 
 void readOld() {
-	Serial.println("Hold the cartridge tag over the reader..");
+	Serial.println(F("Hold the cartridge tag over the reader.."));
 	while (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial());
-	uint32_t k = getkey((uint8_t*)mfrc522.uid.uidByte);
-	uint16_t p = getpack((uint8_t*)mfrc522.uid.uidByte);
-	Serial.print("UID:"); printHex((uint8_t*)mfrc522.uid.uidByte, 7);
-	Serial.print("KEY:"); Serial.println(k, HEX);
-	Serial.print("PACK:"); Serial.println(p, HEX);
-	if (PCD_NTAG213_AUTH(&k[0], &p[0])) {
-		Serial.println("Authenticated! Reading Data.");
-		mfrc522.PICC_DumpMifareUltralightToSerial(); //This is a modifier dunp just cghange the for cicle to < 232 instead of < 16 in order to see all the pages on NTAG216
+	uint8_t* k = getkey(mfrc522.uid.uidByte);
+	uint8_t* p = getpack(mfrc522.uid.uidByte);
+	Serial.print(F("UID:")); printHex((uint8_t*)mfrc522.uid.uidByte, 7);
+	Serial.print(F("KEY:")); printHex(k, 4);
+	Serial.print(F("PACK:")); printHex(p, 2);
+
+	uint8_t pb[2];
+	bool status = !mfrc522.PCD_NTAG216_AUTH(k, pb); //STATUS OK
+	printHex(pb, 2);
+	if (status && memcmp(p, pb, 2) == 0) {
+		Serial.println(F("Authenticated! Reading Data."));
+		mfrc522.PICC_DumpMifareUltralightToSerial();
+		bwrite = true;
 	}
-	bwrite = true;
+	else Serial.println(F("Read Failed."));
+	delay(4000);
 }
 
 void writeNew() {
-	Serial.println("Hold paper tag over reader..");
+	Serial.println(F("Hold paper tag over reader.."));
 	while (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial());
 
 	bwrite = false;
@@ -79,20 +80,21 @@ void printHex(uint8_t array[], unsigned int len) {
 	} Serial.println();
 }
 
+// NFC-KEY derivation
 void transform(uint8_t* ru)
 {
 	//Transform
 	uint8_t i;
 	uint8_t p = 0;
-	uint32_t v1 = (((uint32_t)ru[3] << 24) | ((uint32_t)ru[2] << 16) | ((uint32_t)ru[1] << 8) | (uint32_t)ru[0]) + c[p++];
-	uint32_t v2 = (((uint32_t)ru[7] << 24) | ((uint32_t)ru[6] << 16) | ((uint32_t)ru[5] << 8) | (uint32_t)ru[4]) + c[p++];
+	uint32_t v1 = (((uint32_t)ru[3] << 24) | ((uint32_t)ru[2] << 16) | ((uint32_t)ru[1] << 8) | (uint32_t)ru[0]) + pgm_getdata<uint32_t>(c + p); p++;
+	uint32_t v2 = (((uint32_t)ru[7] << 24) | ((uint32_t)ru[6] << 16) | ((uint32_t)ru[5] << 8) | (uint32_t)ru[4]) + pgm_getdata<uint32_t>(c + p); p++;
 
 	for (i = 0; i < 12; i += 2)
 	{
-		uint32_t t1 = ROTL(v1 ^ v2, v2 & 0x1F) + c[p++];
-		uint32_t t2 = ROTL(v2 ^ t1, t1 & 0x1F) + c[p++];
-		v1 = ROTL(t1 ^ t2, t2 & 0x1F) + c[p++];
-		v2 = ROTL(t2 ^ v1, v1 & 0x1F) + c[p++];
+		uint32_t t1 = ROTL(v1 ^ v2, v2 & 0x1F) + pgm_getdata<uint32_t>(c + p); p++;
+		uint32_t t2 = ROTL(v2 ^ t1, t1 & 0x1F) + pgm_getdata<uint32_t>(c + p); p++;
+		v1 = ROTL(t1 ^ t2, t2 & 0x1F) + pgm_getdata<uint32_t>(c + p); p++;
+		v2 = ROTL(t2 ^ v1, v1 & 0x1F) + pgm_getdata<uint32_t>(c + p); p++;
 	}
 
 	//Re-use ru
@@ -106,7 +108,7 @@ void transform(uint8_t* ru)
 	ru[7] = (v2 >> 24) & 0xFF;
 }
 
-uint32_t getkey(uint8_t* uid)
+uint8_t* getkey(uint8_t* uid)
 {
 	int i;
 	//Rotate
@@ -119,15 +121,14 @@ uint32_t getkey(uint8_t* uid)
 	transform(ru);
 
 	//Calc key
-	uint32_t k = 0; //Key as int
 	r = (ru[0] + ru[2] + ru[4] + ru[6]) & 3; //Offset
-	for (i = 4; i >= 0; i--) 
-		k = ru[i + r] + (k << 8);
+	uint8_t k[4] = { ru[r + 3], ru[r + 2], ru[r + 1], ru[r] };
+	delay(1);
 
 	return k;
 }
 
-uint16_t getpack(uint8_t* uid)
+uint8_t* getpack(uint8_t* uid)
 {
 	int i;
 	//Rotate
@@ -140,23 +141,85 @@ uint16_t getpack(uint8_t* uid)
 	transform(ru);
 
 	//Calc pack
-	uint32_t p = 0;
+	uint16_t _p = 0;
 	for (i = 0; i < 8; i++)
-		p += ru[i] * 13;
+		_p += ru[i] * 13;
+
+	_p = (_p ^ 0x5555) & 0xFFFF;
+	uint8_t p[] = { (uint8_t)(_p & 0xFF), (uint8_t)(_p >> 8) };
+	delay(1);
+
+	return p;
+}
+
+/*
+* Authenticate with a NTAG213
+*
+* Implemented by Sinitax.
+*/
+MFRC522::StatusCode MFRC522::PCD_NTAG213_AUTH(byte* pwd, byte* pack) //4 byte pass, 2 byte pack
+{
+	MFRC522::StatusCode result;
+	byte cmdBuffer[7]; //since 1 byte cmd, 4 bytes pwd, 2 bytes crc
+
+	cmdBuffer[0] = 0x1B; //auth command
+	memcpy(&cmdBuffer[1], pwd, 4); //pwd
+
+	result = PCD_CalculateCRC(cmdBuffer, 5, &cmdBuffer[5]); //append crc to cmdBuffer
+
+	if (result != STATUS_OK) {
+		Serial.println(F("crcfail"));
+		return result;
+	}
+
+	// Transceive the data, store the reply in cmdBuffer[]
+	byte rxlength = 7;
+	result = PCD_TransceiveData(cmdBuffer, 7, cmdBuffer, &rxlength);
+
+	memcpy(pack, cmdBuffer, 2); 
+
+	if (result != STATUS_OK) {
+		return result;
+	}
+	return STATUS_OK;
+}
+
+/*
+* Set key of NTAG213
+*
+* Implemented by Sinitax.
+*/
+MFRC522::StatusCode MFRC522::PCD_NTAG213_SETPWD(byte* pwd, byte* pack) //4 byte key, 2 pyte pack
+{
+	MFRC522::StatusCode result;
+	byte cmdBuffer[18]; // We need room for 16 bytes data and 2 bytes CRC_A.
+	cmdBuffer[0] = 0x1B; //auth command
+
+	memcpy(cmdBuffer + 1, pwd, 4);
+
+	result = PCD_CalculateCRC(cmdBuffer, 5, &cmdBuffer[5]); //append crc to cmdBuffer if successful
+
+	if (result != STATUS_OK) {
+		return result;
+	}
+
+	// Transceive the data, store the reply in cmdBuffer
+	byte validBits = 0;
+	byte rxlength = 4;
+	result = PCD_TransceiveData(cmdBuffer, 7, cmdBuffer, &rxlength, &validBits);
+
+	memcpy(pack, cmdBuffer, 2);
+
 	
-	p = (p ^ 0x5555) & 0xFFFF;
-	return (p & 0xFF00) >> 8 | (p & 0x00FF) << 8;
+	if (result != STATUS_OK) {
+		return result;
+	}
+	return STATUS_OK;
 }
 
-bool PCD_NTAG213_AUTH(uint32_t* key, uint16_t* pack) {
-	//password location is 0x2B
-	return true;
+template <typename T> T pgm_getdata(const T * sce)
+{
+	static T temp;
+	memcpy_P(&temp, sce, sizeof(T));
+	return temp;
 }
-
-bool PCD_NTAG213_PWDSET(uint32_t* key, uint16_t* pack) {
-
-	return true;
-}
-
-//TODO: PCD_NTAG213_AUTH TO MFRC522 LIB fork and request pull
-//TODO: PCD_NTAG213_PWDSET --
