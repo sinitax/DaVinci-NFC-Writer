@@ -28,11 +28,11 @@ void setup() {
 	mfrc522.PCD_Init();
 
 	pinMode(led, OUTPUT);
-    digitalWrite(led, LOW);
+  digitalWrite(led, LOW);
 }
 
 void loop() {
-    readOld();
+  readOld();
 }
 
 void readOld() {
@@ -50,17 +50,18 @@ void readOld() {
 	Serial.print(F("PACK:")); printHex(p, 2);
 
 	uint8_t pb[2];
-	bool status = !PCD_NTAG21X_AUTH(k, pb); //STATUS OK
+	bool status = !mfrc522.PCD_NTAG216_AUTH(k, pb); //STATUS OK
 	printHex(pb, 2);
 	if (status && !memcmp(p, pb, 2)) {
 		Serial.println(F("Authenticated! Reading Data."));
 		PICC_DumpNTAG21XToSerial();
-		bwrite = true;
+    digitalWrite(led, HIGH);
+    delay(200);
+    digitalWrite(led, LOW);
 	}
 	else Serial.println(F("Read Failed."));
 	Serial.println();
 	delay(3000);
-    bwrite = false;
 }
 
 void printHex(uint8_t array[], unsigned int len) {
@@ -140,38 +141,11 @@ void getpack(uint8_t* pack, const uint8_t* uid) //pass pointer to array
 	memcpy(pack, p, 2);
 }
 
-MFRC522::StatusCode PCD_NTAG21X_AUTH(byte* pwd, byte* pack) //4 byte pass, 2 byte pack
-{
-	MFRC522::StatusCode result;
-	byte cmdBuffer[7]; //1 byte cmd, 4 bytes pwd, 2 bytes crc
-
-	cmdBuffer[0] = 0x1B; //auth command
-	memcpy(&cmdBuffer[1], pwd, 4); //pwd
-
-	result = mfrc522.PCD_CalculateCRC(cmdBuffer, 5, &cmdBuffer[5]); //append crc to cmdBuffer
-
-	if (result != MFRC522::STATUS_OK) {
-		printRSP(CRCFAIL);
-		return result;
-	}
-
-	// Transceive the data, store the reply in cmdBuffer[]
-	byte rxlength = 4; //returned pack page
-	result = mfrc522.PCD_TransceiveData(cmdBuffer, 7, cmdBuffer, &rxlength);
-	
-	memcpy(pack, cmdBuffer, 2); 
-
-	if (result != MFRC522::STATUS_OK) {
-		return result;
-	}
-	return MFRC522::STATUS_OK;
-}
-
 MFRC522::StatusCode PCD_NTAG21X_SETPWD(byte* pwd, byte* pack, uint8_t tagtype) //4 byte key, 2 pyte pack
 {
 	MFRC522::StatusCode result;
-	byte packp = PICC_List[tagtype].packp,
-		pwdp = PICC_List[tagtype].pwdp;
+	byte packp = 0x2C,
+		pwdp = 0x2B;
 
 	//write pack
 	byte page[4];
