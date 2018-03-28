@@ -1,11 +1,8 @@
 ## DaVinci Tag Cloner
 
-### Requirements:
+### Setup:
 
-* Arduino
-* MFRC522 Module
-* LED
-* NTAG21X Paper Tag
+![Fritzing Layout](layout/layout.PNG?raw=true "Layout")
 
 ### Usage:
 
